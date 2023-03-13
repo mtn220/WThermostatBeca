@@ -15,9 +15,9 @@ Fork of <https://github.com/fashberg/WThermostatBeca> updated to work specifical
 Two more images of the board [here](docs/images/BHP-8000_board_2.jpg) and [here](docs/images/BHP-8000_board_3.jpg)
 </details>
 
-The BHP-8000 is a WiFi enabled thermostat that runs on a similar principle to the other thermostats that the ThermostatBecaWifi firmware was designed for. It uses the same [Tuya Serial Protocol](https://developer.tuya.com/en/docs/iot/tuya-cloud-universal-serial-port-access-protocol?id=K9hhi0xxtn9cb) to communicate between the ESP8266 based WiFi chip (Tuya TYWE3S) and the MCU. This MCU is different than referenced in the fashberg documentation and importantly, *the mapping of data points between the WiFi chip and the MCU are different.*
+The BHP-8000 is a WiFi enabled thermostat that runs on a similar principle to the other thermostats that the ThermostatBecaWifi firmware was designed for. It uses the same [Tuya Serial Protocol](https://developer.tuya.com/en/docs/iot/tuya-cloud-universal-serial-port-access-protocol?id=K9hhi0xxtn9cb) to communicate between the ESP8266 based WiFi chip (Tuya TYWE3S) and the MCU. This MCU is different than referenced in the fashberg documentation and importantly, **the mapping of data points between the WiFi chip and the MCU are different.** This firmware replaces the WiFi chip (TYWE3S) firmware, not the code on the MCU.
 
-###Data Point (DP) Mapping
+### Data Point (DP) Mapping
 <details open>
 <summary>Mapping Table</summary>
 
@@ -170,8 +170,10 @@ mosquitto_pub -t "home/test/cmnd/things/thermostat/mcucommand" -m "55 aa 00 1c 0
 
 ```
 </details>
+
 ##### Sending the MCU Commands
 This firmware can send raw commands to the MCU via MQTT.
+
 Send the command to `<your_topic>/cmnd/things/thermostat/mcucommand`
 
 The command should be in hex with spaces between every two bytes. It should include the header (55 AA) but not the checksum. The checksum is added automatically before the command is sent to the MCU.
@@ -196,8 +198,10 @@ The web log will report that an unknown command was received anytime this functi
 </details>
 
 ## Random Notes
-* Locking the thermostat locks all the physical buttons except for the power button. Turning the thermostat power off and on unlocks the buttons, but didn't change the "locked" status within the MCU. In this firmware, I set it up to update the MCU parameter as needed anytime the device is turned off to keep the parameter in sync.
-* The built-in schedules might be able to be implemented, but I didn't put the time into it. Check out DP 17 (0x11), that might be it.
+* Locking the thermostat locks all the physical buttons except for the power button. Turning the thermostat power off and on unlocks the buttons, but doesn't change the "locked" status within the MCU. In this firmware, I set it up to update the MCU parameter as needed anytime the device is turned off to keep the parameter in sync.
+* The built-in schedules might be able to be implemented, but I didn't put the time into it. Check out DP 17 (0x11), that might be it. Here is an example of the data that comes from that data point: `55 aa 03 07 00 74 11 00 00 70 01 68 02 d0 01 e0 02 d0 02 b2 02 d0 03 2a 02 d0 01 68 02 d0 01 e0 02 d0 02 b2 02 d0 03 2a 02 d0 01 68 02 d0 01 e0 02 d0 03 fc 02 d0 05 28 02 6c 01 68 02 d0 01 e0 02 d0 02 b2 02 d0 03 2a 02 d0 01 68 02 d0 0`
+* There is a lot more information at the original firmware https://github.com/fashberg/WThermostatBeca and https://github.com/klausahrenberg/WThermostatBeca.
+  * Check out the docs folder of these for a lot of info that isn't contained in the readme files.
 
 ## Flashing / Updating
 Follow directions from https://github.com/fashberg/WThermostatBeca and/or https://github.com/klausahrenberg/WThermostatBeca.
@@ -246,8 +250,3 @@ There are 3 environments:
 3. wthermostat-debug: (untested) this is the debug/development version.  DO NOT FLASH TO THERMOSTAT HARDWARE! There is debugging output to serial interface which will confuse Thermostat-MCU. Upload to USB-Connected development ESP8266 board (Node MCU or Wemos D1 Mini pro) and monitor the output in vscode/pio-monitor.
 
 bin vs bin.gz: You can directly upload a gzipped (compressed) firmware via OTA
-
-## More Info
-There is a lot more information at the original firmware https://github.com/fashberg/WThermostatBeca and https://github.com/klausahrenberg/WThermostatBeca.
-
-Check out the docs folder of these for a lot of info that isn't contained in the readme files.
