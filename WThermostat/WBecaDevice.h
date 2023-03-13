@@ -142,38 +142,40 @@ TODO
 #define STATE_COMPLETE 5
 #define PIN_STATE_HEATING_RELAY 5
 #define PIN_STATE_COOLING_RELAY 4
-#define ECOMODETEMP 20.0
-#define ECOMODETEMP_COOL 26.0
-// tuya doc says local time seconds is from 0 to 15 but this seems to be not right
-// for beca
+#define ECOMODETEMP 68.0
+#define ECOMODETEMP_COOL 78.0
+// tuya doc says local time seconds is from 0 to 15 but this seems to be not
+// right for beca
 #define SECONDS_DIVIDER 1
 
 const unsigned char COMMAND_START[] = {0x55, 0xAA};
 const char AR_COMMAND_END = '\n';
 const String SCHEDULES = "schedules";
 const String MCUCOMMAND = "mcucommand";
-const char* SCHEDULES_MODE_OFF PROGMEM = "off";
-const char* SCHEDULES_MODE_AUTO PROGMEM = "auto";
-// HOLD_MODE is an alias for SCHEDULE_MODE - Just Different Names/attributes
+const char* SCHEDULES_MODE_SCHEDULE PROGMEM = "schedule";
+const char* SCHEDULES_MODE_TEMP_HOLD PROGMEM = "temporary_hold";
+const char* SCHEDULES_MODE_PERM_HOLD PROGMEM = "permanent_hold";
+const char* SCHEDULES_MODE_HOLD_UNTIL PROGMEM = "hold_until";
+// HOLD_STATE is an alias for SCHEDULE_MODE - Just Different Names/attributes
 // special for HASS
-const char* HOLD_STATE_MANUAL PROGMEM = "manual";
-const char* HOLD_STATE_SCHEDULER PROGMEM = "scheduler";
-const char* HOLD_STATE_ECO PROGMEM = "eco";
-const char* HOLD_STATE_OFF PROGMEM = "off";
+const char* HOLD_STATE_SCHEDULE PROGMEM = "schedule";
+const char* HOLD_STATE_TEMP_HOLD PROGMEM = "temporary_hold";
+const char* HOLD_STATE_PERM_HOLD PROGMEM = "permanent_hold";
+const char* HOLD_STATE_HOLD_UNTIL PROGMEM = "hold_until";
 const char* SYSTEM_MODE_NONE PROGMEM = "none";
 const char* SYSTEM_MODE_COOL PROGMEM = "cool";
 const char* SYSTEM_MODE_HEAT PROGMEM = "heat";
-const char* SYSTEM_MODE_FAN PROGMEM = "fan_only";
+const char* SYSTEM_MODE_OFF PROGMEM = "off";
+const char* SYSTEM_MODE_EMER PROGMEM = "emergency_heating";
+const char* SYSTEM_MODE_AUTO PROGMEM = "auto";
 const char* STATE_OFF PROGMEM = "off";
 const char* STATE_HEATING PROGMEM = "heating";
 const char* STATE_COOLING PROGMEM = "cooling";
 const char* STATE_FAN PROGMEM = "fan";
 const char* FAN_MODE_NONE PROGMEM = "none";
 const char* FAN_MODE_AUTO PROGMEM = "auto";
-const char* FAN_MODE_LOW  PROGMEM = "low";
-const char* FAN_MODE_MEDIUM  PROGMEM = "medium";
-const char* FAN_MODE_HIGH PROGMEM = "high";
-const char* MODE_OFF  PROGMEM = "off";
+const char* FAN_MODE_ON PROGMEM = "on";
+const char* MODE_OFF PROGMEM = "off";
 const char* MODE_AUTO PROGMEM = "auto";
 const char* MODE_HEAT PROGMEM = "heat";
 const char* MODE_COOL PROGMEM = "cool";
@@ -404,8 +406,10 @@ public:
 		
 		this->schedulesMode = new WProperty(PROP_SCHEDULESMODE, TITL_SCHEDULESMODE, STRING);
 		this->schedulesMode->setAtType(ATTYPE_SCHEDULESMODE);
-		this->schedulesMode->addEnumString(SCHEDULES_MODE_OFF);
-		this->schedulesMode->addEnumString(SCHEDULES_MODE_AUTO);
+		this->schedulesMode->addEnumString(SCHEDULES_MODE_SCHEDULE);
+		this->schedulesMode->addEnumString(SCHEDULES_MODE_TEMP_HOLD);
+		this->schedulesMode->addEnumString(SCHEDULES_MODE_PERM_HOLD);
+		this->schedulesMode->addEnumString(SCHEDULES_MODE_HOLD_UNTIL);
 		this->schedulesMode->setOnChange(std::bind(&WBecaDevice::schedulesModeToMcu, this, std::placeholders::_1));
 		this->schedulesMode->setMqttSendChangedValues(true);
 		this->addProperty(schedulesMode);
@@ -413,12 +417,12 @@ public:
 
 		this->holdState = new WProperty(PROP_HOLDSTATE, nullptr, STRING);
 		this->holdState->setAtType(ATTYPE_HOLDSTATE);
-		this->holdState->addEnumString(HOLD_STATE_MANUAL);
-		this->holdState->addEnumString(HOLD_STATE_SCHEDULER);
-		this->holdState->addEnumString(HOLD_STATE_ECO);
-		this->holdState->addEnumString(HOLD_STATE_OFF);
+		this->holdState->addEnumString(HOLD_STATE_SCHEDULE);
+		this->holdState->addEnumString(HOLD_STATE_TEMP_HOLD);
+		this->holdState->addEnumString(HOLD_STATE_PERM_HOLD);
+		this->holdState->addEnumString(HOLD_STATE_HOLD_UNTIL);
 		this->holdState->setOnChange(std::bind(&WBecaDevice::holdStateToScheduleMode, this, std::placeholders::_1));
-		this->holdState->setOnValueRequest(std::bind(&WBecaDevice::holdStateRequest, this, std::placeholders::_1));
+		this->holdState->setOnValueRequest(std::bind(&WBecaDevice::holdStateUpdate, this, std::placeholders::_1));
 		this->holdState->setMqttSendChangedValues(true);
 		this->holdState->setVisibility(MQTT);
 		this->addProperty(holdState);
@@ -457,17 +461,17 @@ public:
         	this->systemMode->setAtType(ATTYPE_MODE);
 			this->systemMode->addEnumString(SYSTEM_MODE_COOL);
         	this->systemMode->addEnumString(SYSTEM_MODE_HEAT);
-        	this->systemMode->addEnumString(SYSTEM_MODE_FAN);
+			this->systemMode->addEnumString(SYSTEM_MODE_OFF);
+			this->systemMode->addEnumString(SYSTEM_MODE_AUTO);
+			this->systemMode->addEnumString(SYSTEM_MODE_EMER);
 			this->systemMode->setOnChange(std::bind(&WBecaDevice::systemModeToMcu, this, std::placeholders::_1));
 			this->systemMode->setMqttSendChangedValues(true);
         	this->addProperty(systemMode);
     		this->fanMode = new WProperty(PROP_FANMODE, TITL_FANMODE, STRING);
         	this->fanMode->setAtType(ATTYPE_FANMODE);
         	this->fanMode->addEnumString(FAN_MODE_NONE);
-        	this->fanMode->addEnumString(FAN_MODE_LOW);
-        	this->fanMode->addEnumString(FAN_MODE_MEDIUM);
-			this->fanMode->addEnumString(FAN_MODE_HIGH);
 			this->fanMode->addEnumString(FAN_MODE_AUTO);
+			this->fanMode->addEnumString(FAN_MODE_ON);
 			this->fanMode->setOnChange(std::bind(&WBecaDevice::fanModeToMcu, this, std::placeholders::_1));
 			this->fanMode->setMqttSendChangedValues(true);
         	this->addProperty(fanMode);
@@ -644,8 +648,8 @@ public:
 
 		// Temp precision
 		page->printf_P(HTTP_COMBOBOX_BEGIN, F("Temperature Precision (must match your hardware):"), "tp");
-		page->printf_P(HTTP_COMBOBOX_ITEM, "05", (getTemperatureFactor() ==  2.0f ? HTTP_SELECTED : ""), F("0.5 (default for most Devices)"));
-		page->printf_P(HTTP_COMBOBOX_ITEM, "10", (getTemperatureFactor() ==  1.0f ? HTTP_SELECTED : ""), F("1.0 (untested)"));
+		page->printf_P(HTTP_COMBOBOX_ITEM, "05", (getTemperatureFactor() ==  2.0f ? HTTP_SELECTED : ""), F("0.5 (Not for BHP-8000)"));
+		page->printf_P(HTTP_COMBOBOX_ITEM, "10", (getTemperatureFactor() ==  1.0f ? HTTP_SELECTED : ""), F("1.0 (BHP-8000)"));
 		//page->printf_P(HTTP_COMBOBOX_ITEM), "01", (getTemperatureFactor() == 10.0f ? HTTP_SELECTED : "", "0.1");
 		page->printf_P(HTTP_COMBOBOX_END);
 
@@ -995,6 +999,36 @@ public:
 		network->publishMqtt((stat_topic+SCHEDULES).c_str(), response);
 	}
 
+	byte getSchedulesModeAsByte()
+	{
+		if (schedulesMode != nullptr)
+		{
+			if (schedulesMode->equalsString(SCHEDULES_MODE_SCHEDULE))
+			{
+				return 0x00;
+			}
+			else if (schedulesMode->equalsString(SCHEDULES_MODE_TEMP_HOLD))
+			{
+				return 0x01;
+			}
+			else if (schedulesMode->equalsString(SCHEDULES_MODE_PERM_HOLD))
+			{
+				return 0x02;
+			}
+			else if (schedulesMode->equalsString(SCHEDULES_MODE_HOLD_UNTIL))
+			{
+				return 0x03;
+			}
+			else
+			{
+				return 0xFF;
+			}
+		}
+		else
+		{
+			return 0xFF;
+		}
+	}
 
 	int getSchedulesPeriod(const char* key) {
 		if (strlen(key) == 3) {
@@ -1154,12 +1188,8 @@ public:
     	if (fanMode != nullptr) {
     	   	if (fanMode->equalsString(FAN_MODE_AUTO)) {
     	   		return 0x00;
-    	   	} else if (fanMode->equalsString(FAN_MODE_HIGH)) {
+			} else if (fanMode->equalsString(FAN_MODE_ON)) {
     	   		return 0x01;
-    	   	} else if (fanMode->equalsString(FAN_MODE_MEDIUM)) {
-    	   		return 0x02;
-    	   	} else if (fanMode->equalsString(FAN_MODE_LOW)) {
-    	   		return 0x03;
     	   	} else {
     	   		return 0xFF;
     	   	}
@@ -1174,12 +1204,11 @@ public:
     		byte dt = this->getFanModeAsByte();
     		if (dt != 0xFF) {
     			//send to device
-    		    //auto:   55 aa 00 06 00 05 67 04 00 01 00
-    			//low:    55 aa 00 06 00 05 67 04 00 01 03
-    			//medium: 55 aa 00 06 00 05 67 04 00 01 02
-    			//high:   55 aa 00 06 00 05 67 04 00 01 01
-    			unsigned char deviceOnCommand[] = { 0x55, 0xAA, 0x00, 0x06, 0x00, 0x05,
-    			                                    0x67, 0x04, 0x00, 0x01, dt};
+				//auto:   55 aa 00 06 00 05 06 01 00 01 00
+				//on:     55 aa 00 06 00 05 06 01 00 01 01
+
+				unsigned char deviceOnCommand[] = {0x55, 0xAA, 0x00, 0x06, 0x00, 0x05,
+												   0x06, 0x01, 0x00, 0x01, dt};
     			commandCharsToSerial(11, deviceOnCommand);
     		}
     	}
@@ -1195,8 +1224,12 @@ public:
     			return 0x00;
     		} else if (systemMode->equalsString(SYSTEM_MODE_HEAT)) {
     			return 0x01;
-    		} else if (systemMode->equalsString(SYSTEM_MODE_FAN)) {
+			} else if (systemMode->equalsString(SYSTEM_MODE_OFF)) {
     			return 0x02;
+			} else if (systemMode->equalsString(SYSTEM_MODE_EMER)) {
+				return 0x03;
+			} else if (systemMode->equalsString(SYSTEM_MODE_AUTO)) {
+				return 0x04;
     		} else {
     			return 0xFF;
     		}
@@ -1211,11 +1244,13 @@ public:
     		byte dt = this->getSystemModeAsByte();
     		if (dt != 0xFF) {
     			//send to device
-    			//cooling:     55 AA 00 06 00 05 66 04 00 01 00
-    			//heating:     55 AA 00 06 00 05 66 04 00 01 01
-    			//ventilation: 55 AA 00 06 00 05 66 04 00 01 02
-    			unsigned char deviceOnCommand[] = { 0x55, 0xAA, 0x00, 0x06, 0x00, 0x05,
-    												0x66, 0x04, 0x00, 0x01, dt};
+				//cooling:     			55 AA 00 06 00 05 05 04 00 01 00
+				//heating:     			55 AA 00 06 00 05 05 04 00 01 01
+				//off: 					55 AA 00 06 00 05 05 04 00 01 02
+				//emergency heating:	55 AA 00 06 00 05 05 04 00 01 03
+				//auto:					55 AA 00 06 00 05 05 04 00 01 04
+				unsigned char deviceOnCommand[] = {0x55, 0xAA, 0x00, 0x06, 0x00, 0x05,
+												   0x05, 0x04, 0x00, 0x01, dt};
     			commandCharsToSerial(11, deviceOnCommand);
 				updateCurrentSchedulePeriod();
 				updateTargetTemperature();
@@ -1578,11 +1613,12 @@ private:
 						byte commandLength = receivedCommand[5];
 						if (mcuInitializeState==6) mcuInitializeState++;
 						//Status report from MCU
+						//receivedCommand[6] is data point ID (dpid)
 						switch (receivedCommand[6]) {
 						case 0x01:
 							if (commandLength == 0x05) {
 								//device On/Off
-								//55 aa 00 06 00 05 01 01 00 01 00|01
+								//55 aa 03 07 00 05 01 01 00 01 00|01
 								newB = (receivedCommand[10] == 0x01);
 								changed = ((changed) || (newChanged=(newB != deviceOn->getBoolean())));
 								deviceOn->setBoolean(newB);
@@ -1590,13 +1626,22 @@ private:
 								logIncomingCommand("deviceOn_x01", (newChanged ? LOG_LEVEL_TRACE : LOG_LEVEL_VERBOSE));
 								knownCommand = true;
 								if (newChanged && newB && onPowerButtonOn) onPowerButtonOn();
+
+								// When device turns off, it doesn't change the locked parmeter and it gets out-of-sync.
+								// Unloack the device whenever it turns off to keep it in sync.
+								if (newChanged && !newB)
+								{
+									if (locked->getBoolean())
+									{
+										locked->setBoolean(false);
+									}
+								}
 							}
 							break;
 						case 0x02:
 							if (commandLength == 0x08) {
 								//target Temperature for manual mode
-								//e.g. 24.5C: 55 aa 01 07 00 08 02 02 00 04 00 00 00 31
-								//                                    LENGT xx xx xx xx (longer values? (for 0.1?)) 
+								//e.g. 70 deg F: 55 aa 03 07 00 08 02 02 00 04 00 00 00 46
 								newValue = static_cast<float>(receivedCommand[13] / getTemperatureFactor());
 								changed = ((changed) || (newChanged=!WProperty::isEqual(targetTemperatureManualMode, newValue, 0.01)));
 								targetTemperatureManualMode = newValue;
@@ -1610,7 +1655,7 @@ private:
 						case 0x03:
 							if (commandLength == 0x08) {
 								//actual Temperature
-								//e.g. 23C: 55 aa 01 07 00 08 03 02 00 04 00 00 00 2e
+								//e.g. 70 deg F (without checksum): 55 aa 03 07 00 08 02 02 00 04 00 00 00 46
 								newValue = static_cast<float>(static_cast<int8_t>(receivedCommand[13]) / getTemperatureFactor());
 								changed = ((changed) || (newChanged=!actualTemperature->equalsDouble(newValue)));
 								actualTemperature->setDouble(newValue);
@@ -1620,40 +1665,54 @@ private:
 							break;
 						case 0x04:
 							if (commandLength == 0x05) {
-								//manualMode?
-								newB = (receivedCommand[10] == 0x01);
-								changed = (changed || (newChanged=((!newB && schedulesMode->equalsString(SCHEDULES_MODE_OFF)) || (newB && schedulesMode->equalsString(SCHEDULES_MODE_AUTO)))));
-								schedulesMode->setString(newB ? SCHEDULES_MODE_OFF : SCHEDULES_MODE_AUTO);
-								if (newChanged){
-									network->log()->trace("Manual Mode newChanged to %s", (newB ? "on" : "off"));
-									holdFromScheduler();
+								// schedule mode
+								// MODEL_BHP-8000 - scheduleMode
+								// schedule:     	55 AA 03 07 00 05 04 04 00 01 00
+								// temporary_hold:	55 AA 03 07 00 05 04 04 00 01 02
+								// permanent_hold: 	55 AA 03 07 00 05 04 04 00 01 03
+								// hold_until:		55 AA 03 07 00 05 04 04 00 01 04
+								changed = ((changed) ||
+										   (newChanged = (receivedCommand[10] !=
+														  this->getSchedulesModeAsByte())));
+								if (systemMode != nullptr)
+								{
+									switch (receivedCommand[10])
+									{
+									case 0x00:
+										schedulesMode->setString(SCHEDULES_MODE_SCHEDULE);
+										break;
+									case 0x01:
+										schedulesMode->setString(SCHEDULES_MODE_TEMP_HOLD);
+										break;
+									case 0x02:
+										schedulesMode->setString(SCHEDULES_MODE_PERM_HOLD);
+										break;
+									case 0x03:
+										schedulesMode->setString(SCHEDULES_MODE_HOLD_UNTIL);
+										break;
+									}
+								}
+								if (newChanged)
+								{
+									network->log()->trace("Schedule Mode changed to %s",
+														  schedulesMode->c_str());
+									holdStateUpdate(NULL);
 									updateCurrentSchedulePeriod();
 									updateTargetTemperature();
 									updateModeAndAction();
 								}
 								receivedStates[2] = true;
-								logIncomingCommand("manualMode_x04", (newChanged ? LOG_LEVEL_TRACE : LOG_LEVEL_VERBOSE));
+								logIncomingCommand("scheduleMode_x04", (newChanged ? LOG_LEVEL_TRACE : LOG_LEVEL_VERBOSE));
 								knownCommand = true;
 							}
 							break;
-						case 0x05:
+						case 0x07:
 							if (commandLength == 0x05) {
-								//ecoMode
-								newB = (receivedCommand[10] == 0x01);
-								changed = ((changed) || (newChanged=(newB != ecoMode->getBoolean())));
-								ecoMode->setBoolean(newB);
-								receivedStates[3] = true;
-								logIncomingCommand("ecoMode_x05", (newChanged ? LOG_LEVEL_TRACE : LOG_LEVEL_VERBOSE));
-								knownCommand = true;
-							}
-							break;
-						case 0x06:
-							if (commandLength == 0x05) {
-								//locked
+								// locked
 								newB = (receivedCommand[10] == 0x01);
 								changed = ((changed) || (newChanged=(newB != locked->getBoolean())));
 								locked->setBoolean(newB);
-								receivedStates[4] = true;
+								receivedStates[3] = true;
 								logIncomingCommand("locked_x06", (newChanged ? LOG_LEVEL_TRACE : LOG_LEVEL_VERBOSE));
 								knownCommand = true;
 							}
@@ -1680,28 +1739,19 @@ private:
 									updateModeAndAction();
 								}
 								knownCommand = true;
-							} else if (receivedCommand[5] == 0x05) {
+							}/* else if (receivedCommand[5] == 0x05) {
 								//Unknown permanently sent from MCU
 								//55 aa 01 07 00 05 68 01 00 01 01
 								knownCommand = true;
-							}
+							}*/
 							break;
-						case 0x66:
-							if (commandLength == 0x08) {
-								//MODEL_BHT_002_GBLW - actualFloorTemperature
-								//55 aa 01 07 00 08 66 02 00 04 00 00 00 00
-								newValue = static_cast<float>(static_cast<int8_t>(receivedCommand[13]) / getTemperatureFactor());
-								if (actualFloorTemperature != nullptr) {
-									changed = ((changed) || (newChanged=!actualFloorTemperature->equalsDouble(newValue)));
-									actualFloorTemperature->setDouble(newValue);
-								}
-								logIncomingCommand("actualFloorTemperature_x66", (newChanged ? LOG_LEVEL_TRACE : LOG_LEVEL_VERBOSE));
-								knownCommand = true;
-							} else if (commandLength == 0x05) {
-								//MODEL_BAC_002_ALW - systemMode
-								//cooling:     55 AA 00 06 00 05 66 04 00 01 00
-								//heating:     55 AA 00 06 00 05 66 04 00 01 01
-								//ventilation: 55 AA 00 06 00 05 66 04 00 01 02
+						case 0x05:
+							if (commandLength == 0x05) {
+								//MODEL_BHP-8000 - systemMode
+								//cooling:     		55 AA 03 07 00 05 05 04 00 01 00
+								//heating:     		55 AA 03 07 00 05 05 04 00 01 01
+								//off: 				55 AA 03 07 00 05 05 04 00 01 02 emergency heating:	55 AA 03 07 00 05 05 04 00 01 03
+								//auto:				55 AA 03 07 00 05 05 04 00 01 04 
 								//this->thermostatModel->setByte(MODEL_BAC_002_ALW);
 								changed = ((changed) || (newChanged=(receivedCommand[10] != this->getSystemModeAsByte())));
 								if (systemMode != nullptr) {
@@ -1713,39 +1763,38 @@ private:
 										systemMode->setString(SYSTEM_MODE_HEAT);
 										break;
 									case 0x02 :
-										systemMode->setString(SYSTEM_MODE_FAN);
+										systemMode->setString(SYSTEM_MODE_OFF);
+										break;
+									case 0x03 :
+										systemMode->setString(SYSTEM_MODE_EMER);
+										break;
+									case 0x04 :
+										systemMode->setString(SYSTEM_MODE_AUTO);
 										break;
 									}
 								}
-								logIncomingCommand("systemMode_x66", (newChanged ? LOG_LEVEL_TRACE : LOG_LEVEL_VERBOSE));
+								logIncomingCommand("systemMode_x05", (newChanged ? LOG_LEVEL_TRACE : LOG_LEVEL_VERBOSE));
 								knownCommand = true;
 							}
 							break;
-						case 0x67:
+						case 0x06:
 							if (commandLength == 0x05) {
 								//fanSpeed
-								//auto   - 55 aa 01 07 00 05 67 04 00 01 00
-								//low    - 55 aa 01 07 00 05 67 04 00 01 03
-								//medium - 55 aa 01 07 00 05 67 04 00 01 02
-								//high   - 55 aa 01 07 00 05 67 04 00 01 01
+								//auto   - 55 aa 00 07 00 05 06 04 00 01 00
+								//on   - 55 aa 00 07 00 05 06 04 00 01 01
 								changed = ((changed) || (newChanged=(receivedCommand[10] != this->getFanModeAsByte())));
 								if (fanMode != nullptr) {
 									switch (receivedCommand[10]) {
 									case 0x00 :
 										fanMode->setString(FAN_MODE_AUTO);
 										break;
-									case 0x03 :
-										fanMode->setString(FAN_MODE_LOW);
-										break;
-									case 0x02 :
-										fanMode->setString(FAN_MODE_MEDIUM);
-										break;
 									case 0x01 :
-										fanMode->setString(FAN_MODE_HIGH);
+										fanMode->setString(FAN_MODE_ON);
 										break;
 									}
 								}
-								logIncomingCommand("fanSpeed_x67", (newChanged ? LOG_LEVEL_TRACE : LOG_LEVEL_VERBOSE));
+								receivedStates[4] = true;
+								logIncomingCommand("fanMode_x06", (newChanged ? LOG_LEVEL_TRACE : LOG_LEVEL_VERBOSE));
 								knownCommand = true;
 							}
 							break;
@@ -1768,10 +1817,14 @@ private:
 						knownCommand=true;
 						if (commandLength>=5){
 							unsigned int len=0;
-							len = ((byte)receivedCommand[4] <<8) + (byte)receivedCommand[5];
-							char buf[len+1];
+							// Code updated here to fix formatting in mcu ID
+							// len = ((byte)receivedCommand[4] <<8) + (byte)receivedCommand[5]; // original line
+							len = 16; // badger707
+							// char buf[len+1]; // original line
+							char buf[17]; // badger707
 							for (unsigned int i=0;i<len;i++){
-								buf[i]=receivedCommand[6+i];
+								// buf[i]=receivedCommand[6+i]; // original line
+								buf[i] = receivedCommand[12 + i]; // badger707
 							}
 							buf[len]=0;
 							this->mcuId->setString(buf); 
@@ -1820,16 +1873,7 @@ private:
 	 * If Scheduler Period Changed
 	 */
     void updateTargetTemperature() {
-		if (ecoMode->getBoolean()) {
-			targetTemperature->setSuppressOnChange();
-			if (getThermostatModel() == MODEL_BAC_002_ALW &&
-			 (this->systemMode->equalsString(SYSTEM_MODE_COOL) || this->systemMode->equalsString(SYSTEM_MODE_FAN))){
-				targetTemperature->setDouble(ECOMODETEMP_COOL);
-			} else {
-				targetTemperature->setDouble(ECOMODETEMP);
-			}
-			updateRelaySimulation();
-		} else if ((this->currentSchedulePeriod != -1) && (schedulesMode->equalsString(SCHEDULES_MODE_AUTO))) {
+		if ((this->currentSchedulePeriod != -1) && (schedulesMode->equalsString(SCHEDULES_MODE_SCHEDULE))) {
 			double temp = (double) schedules[this->currentSchedulePeriod + 2] / getTemperatureFactor();
 			String p = String(currentSchedulePeriod>=36 ? SCHEDULES_DAYS[2] : (currentSchedulePeriod>=18 ? SCHEDULES_DAYS[1] : SCHEDULES_DAYS[0]));
 			p.concat(SCHEDULES_PERIODS[(this->currentSchedulePeriod %18) /3]);
@@ -1874,9 +1918,9 @@ private:
 			int newPeriod = startAddr + period * 3;
 			if (/*(getThermostatModel() != MODEL_ET_81_W) && */ (this->switchBackToAuto->getBoolean()) &&
 				(this->currentSchedulePeriod > -1) && (newPeriod != this->currentSchedulePeriod) &&
-				(this->schedulesMode->equalsString(SCHEDULES_MODE_OFF))) {
+				(this->schedulesMode->equalsString(SCHEDULES_MODE_TEMP_HOLD))) {
 				network->log()->notice(PSTR("Changed automatically back to Schedule from Manual"));
-				this->schedulesMode->setString(SCHEDULES_MODE_AUTO);
+				this->schedulesMode->setString(SCHEDULES_MODE_SCHEDULE);
 			}
 			if (this->currentSchedulePeriod!=newPeriod){
 				this->currentSchedulePeriod = newPeriod;
@@ -1891,19 +1935,19 @@ private:
     void onChangeTargetTemperature(WProperty* property) {
 		network->log()->trace(PSTR("Got new targetTemperature"));
 		bool force=false;
-		if (schedulesMode->equalsString(SCHEDULES_MODE_AUTO)){
-			network->log()->trace(PSTR("Got new targetTemperature: Switching from Schdule to Manual"));
+		if (schedulesMode->equalsString(SCHEDULES_MODE_SCHEDULE)){
+			network->log()->trace(PSTR("Got new targetTemperature: Switching from Schedule to Temporary Hold"));
 			schedulesMode->setSuppressOnChange();
-			schedulesMode->setString(SCHEDULES_MODE_OFF);
+			schedulesMode->setString(SCHEDULES_MODE_TEMP_HOLD);
 			force=true;
 		}
-		if (schedulesMode->equalsString(SCHEDULES_MODE_OFF)){
+		if (schedulesMode->equalsString(SCHEDULES_MODE_PERM_HOLD)){
 			// only set targetTemperatureManualMode and targetTemperatureManualModeToMcu() if current mode is Manual
 			if (force || !WProperty::isEqual(targetTemperatureManualMode, this->targetTemperature->getDouble(), 0.01)) {
 				targetTemperatureManualMode = this->targetTemperature->getDouble();
 				network->log()->trace((String(PSTR("onChangeTargetTemperature, temp: "))+String(targetTemperatureManualMode)).c_str());
 				targetTemperatureManualModeToMcu();
-				schedulesMode->setString(SCHEDULES_MODE_OFF);
+				schedulesMode->setString(SCHEDULES_MODE_PERM_HOLD);
 			} else {
 				network->log()->trace((String(PSTR("setTargetTemperatureNoChange, temp: "))+String(this->targetTemperature->getDouble())).c_str());
 			}
@@ -1911,10 +1955,12 @@ private:
 		updateRelaySimulation();
     }
 
-    void targetTemperatureManualModeToMcu() {
-    	if (!this->receivingDataFromMcu) {
+	void targetTemperatureManualModeToMcu()
+	{
+		if (!this->receivingDataFromMcu)
+		{
     		network->log()->notice((String(F("Set target Temperature (manual mode) to "))+String(targetTemperatureManualMode)).c_str());
-    	    //55 AA 00 06 00 08 02 02 00 04 00 00 00 2C
+			// Example, set to 70 deg F: 55 AA 00 06 00 08 02 02 00 04 00 00 00 46
 			byte dt = (byte) (targetTemperatureManualMode * getTemperatureFactor());
     	    unsigned char setTemperatureCommand[] = { 0x55, 0xAA, 0x00, 0x06, 0x00, 0x08,
     	    		0x02, 0x02, 0x00, 0x04,
@@ -1941,7 +1987,7 @@ private:
 				if (!systemMode) return;
 				if (this->systemMode->equalsString(SYSTEM_MODE_HEAT)){
 					isHeating=true;
-				} else if (this->systemMode->equalsString(SYSTEM_MODE_COOL) || this->systemMode->equalsString(SYSTEM_MODE_FAN)){
+			} else if (this->systemMode->equalsString(SYSTEM_MODE_COOL)){
 					isCooling=true;
 				}
 			}
@@ -1971,7 +2017,7 @@ private:
 				updateModeAndAction();
 			} else if ((actual != oldActualTemperature || target != oldTargetTemperature) && actual >= (target + dz)){
 		
-				if (this->systemMode->equalsString(SYSTEM_MODE_FAN)){
+				if (this->fanMode->equalsString(FAN_MODE_ON)){
 					this->state->setString(STATE_FAN);
 					network->log()->notice(F("RelaySimulation: State FAN"));
 				} else {
@@ -1989,76 +2035,66 @@ private:
     	if (!this->receivingDataFromMcu) {
 			network->log()->trace(F("schedulesModeToMcu %s"), property->c_str());
         	//55 AA 00 06 00 05 04 04 00 01 01
-        	byte dt = (schedulesMode->equalsString(SCHEDULES_MODE_OFF) ? 0x01 : 0x00);
+			byte dt = this->getSchedulesModeAsByte();
+			if (dt != 0xFF)
+			{
         	unsigned char deviceOnCommand[] = { 0x55, 0xAA, 0x00, 0x06, 0x00, 0x05,
         	                                    0x04, 0x04, 0x00, 0x01, dt};
         	commandCharsToSerial(11, deviceOnCommand);
-			if (schedulesMode->equalsString(SCHEDULES_MODE_OFF)){
-			} else if (schedulesMode->equalsString(SCHEDULES_MODE_AUTO)){
-			} else {
-				// correct to valid value
-				this->schedulesMode->setString(SCHEDULES_MODE_AUTO);
-			}
-			holdStateRequest(property);
+				holdStateUpdate(property);
 			updateCurrentSchedulePeriod();
 			updateTargetTemperature();
 			updateModeAndAction();
         }
+			else {
+				// correct to valid value
+				this->schedulesMode->setString(SCHEDULES_MODE_PERM_HOLD);
+			}
+		}
     }
 
 	void holdStateToScheduleMode(WProperty* property) {
-		if (holdState->equalsString(HOLD_STATE_MANUAL)){
-			this->ecoMode->setBoolean(false);
-			this->schedulesMode->setString(SCHEDULES_MODE_OFF);
-		} else if (holdState->equalsString(HOLD_STATE_SCHEDULER)){
-			this->ecoMode->setBoolean(false);
-			this->schedulesMode->setString(SCHEDULES_MODE_AUTO);
-		} else if (holdState->equalsString(HOLD_STATE_OFF)){
-			this->ecoMode->setBoolean(false);
-		} else if (holdState->equalsString(HOLD_STATE_ECO)){
-			this->ecoMode->setBoolean(true);
+		if (holdState->equalsString(HOLD_STATE_SCHEDULE)){
+			this->schedulesMode->setString(SCHEDULES_MODE_SCHEDULE);
+		} else if (holdState->equalsString(HOLD_STATE_TEMP_HOLD)){
+			this->schedulesMode->setString(SCHEDULES_MODE_TEMP_HOLD);
+		} else if (holdState->equalsString(HOLD_STATE_PERM_HOLD)){
+			this->schedulesMode->setString(SCHEDULES_MODE_PERM_HOLD);
+		} else if (holdState->equalsString(HOLD_STATE_HOLD_UNTIL)){
+			this->schedulesMode->setString(SCHEDULES_MODE_HOLD_UNTIL);
 		} else {
 			// correct to valid value
-			this->ecoMode->setBoolean(false);
-			this->holdState->setString(HOLD_STATE_SCHEDULER);
-			this->schedulesMode->setString(SCHEDULES_MODE_AUTO);
-		}
-	}
-
-	void holdStateRequest(WProperty* property) {
-		if (holdState->equalsString(HOLD_STATE_ECO)){
-		} else if (schedulesMode->equalsString(SCHEDULES_MODE_OFF)){
-			this->holdState->setString(HOLD_STATE_MANUAL);
-		} else if (schedulesMode->equalsString(SCHEDULES_MODE_AUTO)){
-			this->holdState->setString(HOLD_STATE_SCHEDULER);
-		} else {
-			this->holdState->setString(HOLD_STATE_SCHEDULER);
+			this->holdState->setString(HOLD_STATE_PERM_HOLD);
+			this->schedulesMode->setString(SCHEDULES_MODE_PERM_HOLD);
 		}	
 	}
 
-	void holdFromScheduler(){
-		if (ecoMode->getBoolean()){
-			//if ecoMode is On we must not return an holdState
-			holdState->setString(HOLD_STATE_ECO);
-		} else if (schedulesMode->equalsString(SCHEDULES_MODE_OFF)){
-			holdState->setString(HOLD_STATE_MANUAL);
+	void holdStateUpdate(WProperty* property) {
+		if (schedulesMode->equalsString(SCHEDULES_MODE_SCHEDULE)){
+			this->holdState->setString(HOLD_STATE_SCHEDULE);
+		} else if (schedulesMode->equalsString(SCHEDULES_MODE_TEMP_HOLD)){
+			this->holdState->setString(HOLD_STATE_TEMP_HOLD);
+		} else if (schedulesMode->equalsString(SCHEDULES_MODE_PERM_HOLD)){
+			this->holdState->setString(HOLD_STATE_PERM_HOLD);
+		} else if (schedulesMode->equalsString(SCHEDULES_MODE_HOLD_UNTIL)){
+			this->holdState->setString(HOLD_STATE_HOLD_UNTIL);
 		} else {
-			holdState->setString(HOLD_STATE_SCHEDULER);
+			this->holdState->setString(HOLD_STATE_PERM_HOLD);
 		}
 	}
 
     void ecoModeToMcu(WProperty* property) {
-       	if (!this->receivingDataFromMcu) {
-       		//55 AA 00 06 00 05 05 01 00 01 01
+		/*if (!this->receivingDataFromMcu)
+		{
+				// 55 AA 00 06 00 05 05 01 00 01 01
        		byte dt = (this->ecoMode->getBoolean() ? 0x01 : 0x00);
-       		unsigned char deviceOnCommand[] = { 0x55, 0xAA, 0x00, 0x06, 0x00, 0x05,
-       		                                    0x05, 0x01, 0x00, 0x01, dt};
-       		commandCharsToSerial(11, deviceOnCommand);
-			holdFromScheduler();
-       	}
+				unsigned char deviceOnCommand[] = {0x55, 0xAA, 0x00, 0x06, 0x00,
+		0x05, 0x05, 0x01, 0x00, 0x01, dt}; commandCharsToSerial(11,
+		deviceOnCommand); holdFromScheduler();
+		}*/
     }
  	void modeToMcu(WProperty* property) {
-		network->log()->trace(F("modeToMcu %s"), property->c_str());
+		/*network->log()->trace(F("modeToMcu %s"), property->c_str());
 		if (getThermostatModel() == MODEL_BHT_002_GBLW) {
 			if (this->mode->equalsString(MODE_OFF)){
 				this->deviceOn->setBoolean(false);
@@ -2066,7 +2102,7 @@ private:
 			} else {
 				this->deviceOn->setBoolean(true);
 				if (this->mode->equalsString(MODE_AUTO)){
-					this->schedulesMode->setString(SCHEDULES_MODE_AUTO);
+								this->schedulesMode->setString(SCHEDULES_MODE_SCHEDULE);
 				} else if (this->mode->equalsString(MODE_HEAT)){
 					this->schedulesMode->setString(SCHEDULES_MODE_OFF);
 				} else {
@@ -2080,7 +2116,7 @@ private:
 				this->deviceOn->setBoolean(true);
 				if (this->mode->equalsString(MODE_AUTO)){
 					// not really supported
-					this->schedulesMode->setString(SCHEDULES_MODE_AUTO);
+					this->schedulesMode->setString(SCHEDULES_MODE_SCHEDULE);
 					this->holdState->setString(HOLD_STATE_SCHEDULER);
 					this->fanMode->setString(FAN_MODE_AUTO);
 					this->systemMode->setString(SYSTEM_MODE_COOL);
@@ -2088,41 +2124,41 @@ private:
 					this->systemMode->setString(SYSTEM_MODE_HEAT);
 				} else if (this->mode->equalsString(MODE_COOL)){
 					this->systemMode->setString(SYSTEM_MODE_COOL);
-				} else if (this->mode->equalsString(MODE_FAN)){
-					this->systemMode->setString(SYSTEM_MODE_FAN);
 				} else {
 					network->log()->warning(F("modeToMcu unknown mode %s"), property->c_str());
 				}
 			}
-		}
+		}*/
 	}
 
 
 	void presetToMcu(WProperty* property) {
 		network->log()->trace(F("presetToMcu %s"), property->c_str());
-		if (this->mode->equalsString(MODE_OFF)){
+		if (this->systemMode->equalsString(SYSTEM_MODE_OFF)){
 			//noop
 		} else if (this->preset->equalsString(PRESET_AWAY)){
-			this->ecoMode->setBoolean(true);
+			//this->ecoMode->setBoolean(true);
 		} else if (getThermostatModel() == MODEL_BAC_002_ALW && this->preset->equalsString(PRESET_SCHEDULER)){
-			this->ecoMode->setBoolean(false);
-			this->schedulesMode->setString(SCHEDULES_MODE_AUTO);
-			this->holdState->setString(HOLD_STATE_SCHEDULER);
+			// this->ecoMode->setBoolean(false);
+			this->schedulesMode->setString(SCHEDULES_MODE_SCHEDULE);
+			this->holdState->setString(HOLD_STATE_SCHEDULE);
 		} else {
-			this->ecoMode->setBoolean(false);
+			//this->ecoMode->setBoolean(false);
 			if (getThermostatModel() == MODEL_BAC_002_ALW){
-				this->schedulesMode->setString(SCHEDULES_MODE_OFF);
-				this->holdState->setString(HOLD_STATE_MANUAL);
+				this->schedulesMode->setString(SCHEDULES_MODE_PERM_HOLD);
+				this->holdState->setString(HOLD_STATE_PERM_HOLD);
 			}
 		}
 	}
 
     void updateModeAndAction() {
-		if (!this->deviceOn->getBoolean()){
+		/*if (!this->deviceOn->getBoolean())
+		{
 			this->mode->setString(MODE_OFF);
-		} else {
+		}
+		else {
 			if (getThermostatModel() == MODEL_BHT_002_GBLW){
-				if (this->schedulesMode->equalsString(SCHEDULES_MODE_AUTO)){
+					if (this->schedulesMode->equalsString(SCHEDULES_MODE_SCHEDULE)){
 					this->mode->setString(MODE_AUTO);
 				} else {
 					this->mode->setString(MODE_HEAT);
@@ -2132,8 +2168,6 @@ private:
 					this->mode->setString(MODE_HEAT);
 				} else if (this->systemMode->equalsString(SYSTEM_MODE_COOL)){
 					this->mode->setString(MODE_COOL);
-				} else if (this->systemMode->equalsString(SYSTEM_MODE_FAN)){
-					this->mode->setString(MODE_FAN);
 				} else {
 					// BUG
 				}
@@ -2149,34 +2183,32 @@ private:
 				this->action->setString(ACTION_HEATING);
 			} else if (this->systemMode->equalsString(SYSTEM_MODE_COOL)){
 				this->action->setString(ACTION_COOLING);
-			} else if (this->systemMode->equalsString(SYSTEM_MODE_FAN)){
-				this->action->setString(ACTION_FAN);
 			} 
 		} else if (getThermostatModel() == MODEL_BHT_002_GBLW){
 			if (this->state->equalsString(STATE_OFF)){
 				this->action->setString(ACTION_IDLE);
 			} else this->action->setString(ACTION_HEATING);
-		}
+		}*/
 	}
 
 
 	void updatePreset() {
 		if (this->ecoMode->getBoolean()){
 			this->preset->setString(PRESET_AWAY);
-		} else if (getThermostatModel() == MODEL_BAC_002_ALW && this->schedulesMode->equalsString(SCHEDULES_MODE_AUTO)){
+		} else if (getThermostatModel() == MODEL_BAC_002_ALW && this->schedulesMode->equalsString(SCHEDULES_MODE_SCHEDULE)){
 			this->preset->setString(PRESET_SCHEDULER);
 		} else {
 			this->preset->setString(PRESET_NONE);
 		}
 	}
 
-    void lockedToMcu(WProperty* property) {
+	void lockedToMcu(WProperty* property) {
        	if (!this->receivingDataFromMcu) {
-       		//55 AA 00 06 00 05 06 01 00 01 01
+			// 55 AA 00 06 00 05 07 01 00 01 01
        		byte dt = (this->locked->getBoolean() ? 0x01 : 0x00);
-       		unsigned char deviceOnCommand[] = { 0x55, 0xAA, 0x00, 0x06, 0x00, 0x05,
-       		                                    0x06, 0x01, 0x00, 0x01, dt};
-       		commandCharsToSerial(11, deviceOnCommand);
+			unsigned char lockedCommand[] = {0x55, 0xAA, 0x00, 0x06, 0x00, 0x05,
+											 0x07, 0x01, 0x00, 0x01, dt};
+			commandCharsToSerial(11, lockedCommand);
        		//notifyState();
        	}
     }
